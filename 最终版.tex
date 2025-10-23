@@ -1,0 +1,186 @@
+% !TeX program = xelatex
+\documentclass[12pt,a4paper]{article}
+
+% 中文支持
+\usepackage[UTF8]{ctex}
+
+% 版式与常用宏包
+\usepackage[a4paper,left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,array}
+\usepackage[normalem]{ulem}
+\usepackage{graphicx}
+\usepackage{xparse}     % 稳健的命令定义（可选参数）
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{listings}
+
+% 超链接尽量最后加载
+\usepackage{hyperref}
+\hypersetup{
+	colorlinks=true,
+	linkcolor=blue!60!black,
+	urlcolor=blue!60!black,
+	citecolor=blue!60!black
+}
+
+\renewcommand{\arraystretch}{1.5}
+
+% 安全的插图宏：若图片不存在，给出占位提示而不报错
+% 用法：\IncludeFigure[width=0.9\linewidth]{path/to/img.png}
+\NewDocumentCommand{\IncludeFigure}{O{} m}{%
+	\IfFileExists{#2}{%
+		\includegraphics[#1]{#2}%
+	}{%
+		\fbox{\parbox[c][0.25\textheight][c]{0.9\linewidth}{\centering 缺少图片：\texttt{#2}\\请先生成该图片后再编译}}}%
+}%
+
+% 封面变量
+\newcommand{\EventTitle}{2025年第二届大湾区杯科技竞赛}
+\newcommand{\PaperID}{2508}
+\newcommand{\PaperTitle}{股票数据分析模型}
+
+\pagestyle{empty}
+
+\begin{document}
+
+% 封面
+\begin{titlepage}
+	\thispagestyle{empty}
+	
+	\begin{center}
+		{\zihao{-1}\bfseries \EventTitle}
+	\end{center}
+	
+	\vspace{18mm}
+	
+	\noindent
+	\begin{tabularx}{\textwidth}{@{}>{\raggedleft\arraybackslash}p{9em}X@{}}
+		\toprule
+		\heiti 题号 & \PaperID \\
+		\midrule
+		\heiti 标题 & \PaperTitle \\
+		\midrule
+		\heiti 成员信息 &
+		\begin{tabular}[t]{@{}lll@{}}
+			姓名：康仁杰 & 单位：广东药科大学 & 邮箱：2520508122@stu.gdpu.edu.cn \\[0.5ex]
+			\midrule
+			姓名：李其鸿 & 单位：广东药科大学 & 邮箱：2320508225@stu.gdpu.edu.cn \\[0.5ex]
+			\midrule
+			姓名：杜沛锘 & 单位：广东药科大学 & 邮箱：2232753561@qq.com \\
+		\end{tabular}
+		\\
+		\bottomrule
+	\end{tabularx}
+	
+	\vfill
+	
+	{\large
+		\noindent 签名（可电子签名）：
+		\quad 康仁杰、李其鸿、杜沛锘
+	}
+	
+\end{titlepage}
+
+% 正文
+\clearpage
+\pagestyle{plain}
+
+\section{问题1：板块联动建模与排名（军工板块）}
+\label{sec:problem1}
+
+\subsection{任务与数据设定}
+\label{subsec:task-data}
+本文聚焦题目一：基于交易数据时间序列构建军工板块的联动网络，并给出股票的联动强度降序排名。我们使用军工相关股票的周度数据，构造收益矩阵
+\[
+R=\big[r_i(t)\big]_{t=1..T,~i=1..N}\in\mathbb{R}^{T\times N},
+\]
+其中 $T$ 为样本周数、$N$ 为股票数，$r_i(t)$ 表示股票 $i$ 在第 $t$ 周的收益（单位：百分比）。对同一周出现的重复记录取均值以实现时间对齐。
+
+为保证统计稳健性，数据预处理包括：
+- 分位数截断：对收益做上下各 $0.5\%$ 的分位数截断以抑制极端值；
+- 限制性填补：对小缺口采用前向/后向各最多 $2$ 期的填补；
+- 覆盖筛选：窗口内仅保留覆盖周数达到阈值的股票，并在样本不足时启用窗口长度的自动回退策略。
+
+\subsection{多视角融合的联动度量}
+\label{subsec:method}
+我们从三个互补视角度量两只股票 $i,j$ 的联动程度：
+- 价格相关性（去极值后）：皮尔森相关系数
+\[
+\rho_{ij}=\frac{\operatorname{cov}(r_i,r_j)}{\sigma_{r_i}\sigma_{r_j}},\qquad \rho_{ij}\leftarrow \max(\rho_{ij},\,0),
+\]
+强调“协同联动”，将负相关截断为 $0$；
+- 形态相似性（DTW）：采用带 Sakoe–Chiba 约束的动态时间规整距离 $D_{ij}$，并单调映射为相似度
+\[
+\mathrm{Sim}^{\mathrm{DTW}}_{ij}=1-\frac{D_{ij}-D_{\min}}{D_{\max}-D_{\min}}\in[0,1];
+\]
+- 尾部依赖：上下尾共同极端事件比例
+\[
+\lambda_{ij}=\tfrac{1}{2}\!\left[\Pr\big(r_i>q_i^{0.9},\,r_j>q_j^{0.9}\big)+\Pr\big(r_i<q_i^{0.1},\,r_j<q_j^{0.1}\big)\right],
+\]
+其中 $q_i^{\alpha}$ 为股票 $i$ 收益的 $\alpha$ 分位数。
+
+综合联动权重定义为
+\[
+w_{ij}=\alpha\,\rho_{ij}+\beta\,\mathrm{Sim}^{\mathrm{DTW}}_{ij}+\gamma\,\lambda_{ij},\qquad
+\alpha=0.45,~\beta=0.35,~\gamma=0.20,
+\]
+并令 $W=[w_{ij}]$ 的对角元为 $0$。每只股票的净联动强度定义为 $S_i=\sum_{j}w_{ij}$，据此进行降序排名；并在 $W$ 上采用 Louvain 方法进行社区划分，作为网络结构的解释依据。
+
+\subsection{实验设置}
+\label{subsec:exp-setup}
+除非另有说明，默认设置如下：
+- 窗口长度：$52$ 周；自动回退序列：$104,~208,~\text{全样本}$；
+- 覆盖筛选：令 $T$ 为窗口内周数，先以阈值 $\max(10,~\lfloor0.3T\rfloor)$ 初筛，再以 $\max(8,~\lfloor0.3T\rfloor)$ 复筛；
+- 缺失填补：前向/后向各最多 $2$ 期；
+- DTW 带宽比：$0.10$（Sakoe–Chiba 约束）；相关性最小重叠样本：$8$；
+- 尾部分位数：$q_u=0.90,\;q_l=0.10$；
+- 社区发现：Louvain（resolution $=1.0$，随机种子 $42$）。
+
+\subsection{结果展示}
+\label{subsec:results}
+图~\ref{fig:w-heatmap} 给出了按社区顺序重排后的综合联动权重矩阵 $W$ 的热力图，可见清晰的块状结构，表明板块内部存在若干相对紧密的子群。图~\ref{fig:network} 为在阈值 $w_{ij}\ge 0.7$ 下得到的联动网络图，节点大小与净联动强度 $S_i$ 成正比，颜色表示社区。图~\ref{fig:topk} 给出了综合联动系数 Top-20 的柱状图，用于直观展示板块核心股票。
+
+% —— 采用方案B版式：上两图并排、下方整行 ——
+\begin{figure}[htbp]
+	\centering
+	\begin{minipage}{0.49\linewidth}
+		\centering
+		\IncludeFigure[width=\linewidth]{D:/1.scripts/output/figs/fig_W_heatmap.png}
+		\captionof{figure}{综合联动权重矩阵 $W$（按社区重排）}
+		\label{fig:w-heatmap}
+	\end{minipage}\hfill
+	\begin{minipage}{0.49\linewidth}
+		\centering
+		\IncludeFigure[width=\linewidth]{D:/1.scripts/output/figs/fig_network.png}
+		\captionof{figure}{联动网络（阈值 $0.7$；节点大小=净联动强度；颜色=社区）}
+		\label{fig:network}
+	\end{minipage}
+\end{figure}
+
+% 下方整行：Top-20 柱状图
+
+\begin{figure}[htbp]
+	\centering
+	\IncludeFigure[width=0.9\linewidth]{D:/1.scripts/output/figs/fig_topk_bar.png}
+	\caption{综合联动系数 Top-20 柱状图}
+	\label{fig:topk}
+\end{figure}
+
+
+\newpage
+\subsection{稳健性与基线对比}
+\label{subsec:robustness}
+我们比较 $52$ 周与 $104$ 周窗口下的排名一致性，报告 Spearman 秩相关与 Top-$K$（$K=50$）重合率；并将融合模型（$\alpha{=}0.45,\beta{=}0.35,\gamma{=}0.20$）与仅相关性基线（$\alpha{=}1,\beta{=}\gamma{=}0$）对比。若对比结果已输出为文本文件 \texttt{output/figs/baseline\_compare.txt}，可直接在下方展示：
+
+\bigskip
+\noindent
+\IfFileExists{output/figs/baseline_compare.txt}{%
+	\lstinputlisting[basicstyle=\ttfamily\small,frame=single]{output/figs/baseline_compare.txt}%
+}{\fbox{\parbox[c][0.12\textheight][c]{0.9\linewidth}{\centering 缺少文件：\texttt{output/figs/baseline\_compare.txt}\\请先运行对比脚本生成结果后再编译}}}
+
+\subsection{结论}
+\label{subsec:conclusion}
+本文基于价格相关性、形态相似性（DTW）与尾部依赖三种互补视角，构建军工板块的联动网络并给出净联动强度排名。热力图与阈值化网络揭示了板块内部的块状结构与“核心股”群体；与仅相关性基线相比，融合模型在结构连贯性与 Top-$K$ 稳定性方面更具优势。
+
+\end{document}
